@@ -1,0 +1,19 @@
+#ifndef _EMVCO_FUNCTIONS_H_
+#define _EMVCO_FUNCTIONS_H_
+
+#define EMVCO_LOOPBACK_APP		0x01
+#define EMVCO_TRANSSEND_TYPEA 	0x02
+#define EMVCO_TRANSSEND_TYPEB 	0x03
+#define EMVCO_FIELD_ON 			0x04
+#define EMVCO_FIELD_OFF		 	0x05
+#define EMVCO_POLLING 			0x06
+#define EMVCO_RESET 			0x07
+#define EMVCO_WUPA 				0x08
+#define EMVCO_WUPB			 	0x09
+#define EMVCO_RATS 				0x0A
+#define EMVCO_ATTRIB		 	0x0B
+#define EMVCO_READ			 	0x11
+#define EMVCO_WRITE			 	0x12
+#define EMVCO_INTEROPERABILITY	0x20
+
+#endif
