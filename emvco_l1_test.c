@@ -21,6 +21,7 @@
 #include "emvco_functions.h"
 #include "serial_protocol.h"
 
+#define VERSION "1.0.0"
 #define OK 0
 #define ERR 1
 
@@ -28,6 +29,8 @@ int reader_port = -1, pc_port = -1;
 
 #include "serlib.h"
 static char *baud_rate = "115200";
+
+
 
 gboolean oti_message(GIOChannel *source, GIOCondition condition, gpointer data) {
 	unsigned char c;
@@ -301,15 +304,31 @@ GtkWidget *btnRfOn, *btnRfOff, *btnPoll, *btnRfReset,
 GtkWidget *lblApplication;
 
 
+void reset_reader_and_wait_ms(int wait_ms) {
+	system("echo -en 1 > /sys/class/gpio/gpio328/value");
+	usleep(10000);
+	system("echo -en 0 > /sys/class/gpio/gpio328/value");
+	usleep(wait_ms * 1000);
+}
+
 void emvco_buttons_cb(GtkWidget* widget, gpointer data) {
 	unsigned short command = (unsigned short)data;
+
+	/*here reset the reader before sending the command*/
+	reset_reader_and_wait_ms(1000);
+	printf("sending command:%02x\n", command);
 	sp_transceive(reader_port, command, NULL, 0); 
 }
 
 int init_glade_windows() {
+	printf("initializing glade!\n");
 	builder = gtk_builder_new();
 
-	gtk_builder_add_from_file(builder, "emvl1.glade", NULL);
+	if(gtk_builder_add_from_file(builder, "/home/root/emvl1.glade", NULL) == NULL) {
+		printf("builder error!\n");
+		return -1;
+	}
+
 	
 	mainWindow = GTK_WIDGET(gtk_builder_get_object(builder, "mainWindow"));
 
@@ -346,6 +365,9 @@ int init_glade_windows() {
 	g_signal_connect(G_OBJECT(btnRATS), "clicked", G_CALLBACK(emvco_buttons_cb), (gpointer)EMVCO_RATS);	
 	g_signal_connect(G_OBJECT(btnAttrib), "clicked", G_CALLBACK(emvco_buttons_cb), (gpointer)EMVCO_ATTRIB);	
 
+	gtk_widget_show_all(GTK_WIDGET(mainWindow));
+
+	return 0;
 } 
 
 
@@ -362,22 +384,33 @@ int main(int argc, char *argv[]){
 
 
 	/*Required for buzzer*/
-	system("echo 0 > /sys/class/pwm/pwmchip0/export");
-	system("echo 2000000 > /sys/class/pwm/pwmchip0/pwm0/period");
-	system("echo 2000000 > /sys/class/pwm/pwmchip0/pwm0/duty_cycle");
+	//system("echo 0 > /sys/class/pwm/pwmchip0/export");
+	//system("echo 2000000 > /sys/class/pwm/pwmchip0/pwm0/period");
+	//system("echo 2000000 > /sys/class/pwm/pwmchip0/pwm0/duty_cycle");
 
 	/*Required for sound*/
-	system("amixer sset Master 100% on");
+	//system("amixer sset Master 100% on");
+
+	/*Initialize Reset Pin*/
+	system("echo -en 328 > /sys/class/gpio/export");
+	system("echo -en out > /sys/class/gpio/gpio328/direction");
 
 	if (check_args(argc, argv)) {
 		return 1;
 	}
 
-	//fill_buffers();
-	
-	//init_windows();
-	
+	ret = init_glade_windows();
+	if(ret != 0) {
+		printf("Glade file problem, please make sure that the glade file is in the right location!\n");
+		return -1;
+	}
 	init_io_channel_connection();
+
+	char version_string[128] = "EMVCO L1 Test App v";
+
+	strcat(version_string, VERSION);
+
+	gtk_label_set_text(GTK_LABEL(lblApplication), version_string);
 
 	gtk_main();
 

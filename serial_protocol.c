@@ -16,7 +16,9 @@ int sp_transceive(int serial_fd, unsigned short command, unsigned char *data, un
     send_buffer[0] = 0x02; //STX
     send_buffer[1] = (command >> 8) & 0xff;
     send_buffer[2] = (command >> 0) & 0xff;
-
+    send_buffer[3] = (data_len >> 8) & 0xff;
+    send_buffer[4] = (data_len >> 0) & 0xff;
+    send_buffer[5] = 0x03; //ETX 
     idt_SerialPurge(serial_fd);
     for(i = 0; i < 8; i++) {
         idt_SerialSendChar(serial_fd, send_buffer[i]);
