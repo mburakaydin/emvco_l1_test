@@ -1,0 +1,11 @@
+[Unit]
+Description=Tablet Initialize Service
+
+[Service]
+Type=simple
+User=root
+Environment="DISPLAY=:0"
+ExecStart=/home/root/emvco_l1_test
+
+[Install]
+WantedBy=multi-user.target

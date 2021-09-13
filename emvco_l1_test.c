@@ -21,15 +21,44 @@
 #include "emvco_functions.h"
 #include "serial_protocol.h"
 
-#define VERSION "1.0.0"
+#define VERSION "1.1.0"
 #define OK 0
 #define ERR 1
 
 int reader_port = -1, pc_port = -1;
 
 #include "serlib.h"
+int set_ip = 0;
 static char *baud_rate = "115200";
+static char *ip_address = "139.122.100.1/16";
+static char *glade_file = "/home/root/emvl1.glade";
+static unsigned int reset_timeout = 1000;
 
+char service_file[] = "\
+cat <<EOF >/etc/systemd/system/emvco_l1_test.service \n\
+[Unit]\n\
+Description=Tablet Initialize Service \n\
+\n\
+[Service]\n\
+Type=simple\n\
+User=root\n\
+Environment=\"DISPLAY=:0\"\n\
+ExecStart=/home/root/emvco_l1_test -i 192.168.0.180/24 -t 1000\n\
+\n\
+[Install]\n\
+WantedBy=multi-user.target\n\
+EOF";
+
+
+
+void setup_service() {
+	system(service_file);
+	system("systemctl daemon-reload");
+	system("systemctl stop pythonInitTest");
+	system("systemctl disable pythonInitTest");
+	system("systemctl enable emvco_l1_test.service");
+	system("sync");
+}
 
 
 gboolean oti_message(GIOChannel *source, GIOCondition condition, gpointer data) {
@@ -182,20 +211,40 @@ static int check_args(int argc, char **argv)
 {
 	int opt;
 	if (argc > 1) {
-		while ((opt = getopt(argc, argv, "hvb:")) != -1) {
+		while ((opt = getopt(argc, argv, "hvb:i:g:s")) != -1) {
 
 			switch (opt) {
-
+			case 'g':
+				glade_file = strdup(optarg);
+				printf("Glade file->[%s]\n", glade_file);
+				return 0;
+			case 'i':
+				ip_address = strdup(optarg);
+				set_ip = 1;
+				printf("Ip address->[%s]\n", ip_address);
+				return 0;
+			case 't':
+				reset_timeout = atoi(optarg);
+				printf("Reset timeout->[%d]msec\n", reset_timeout);
+				return 0;				
 			case 'b':
 				baud_rate = strdup(optarg);
-				printf("**selected baud rate->%s**\n", baud_rate);
+				printf("Selected baud rate->[%s]\n", baud_rate);
 				return 0;
 			case 'v':
-				printf("Version is %s\n\r", "1.0.0.1");
+				printf("Version is %s\n\r", VERSION);
 				return 1;
+			case 's':
+				printf("setting up service files...\n");
+				setup_service();
+				return 1;
+				
 			default:
 			case 'h':
-				printf("\n\nUSAGE: transparent_serial -d <baud_rate>\n\n");		
+				printf("\n\nUSAGE: transparent_serial -b <baud_rate> -i <ip_address> -g <glade_file> -t <reset_timeout>\n");	
+				printf("\t -s setup service files and exit\n");
+				printf("\t -v print version and exit\n");
+				printf("\t -h print this help and exit\n\n");	
 				return 1;
 			}
 		}
@@ -256,45 +305,7 @@ void transparent_cb() {
 	gtk_widget_set_sensitive(buttonTransparent, FALSE);
 }
 
-#if 0
-int init_windows() {
-	appWindow = GTK_WINDOW(gtk_window_new(GTK_WINDOW_TOPLEVEL));
-	gtk_window_set_position(appWindow, GTK_WIN_POS_CENTER);
-	gtk_window_set_title(appWindow, "appWindow");
 
-	appView = GTK_FIXED(gtk_fixed_new());
-	gtk_widget_set_size_request((appView ),WINDOW_SIZE_800_W,WINDOW_SIZE_480_H);
-	
-	gtk_container_add((appWindow),(appView));
-
-	buttonBuzzer = gtk_button_new_with_label("Buzzer");
-	
-	g_signal_connect(buttonBuzzer, "clicked", (buzzer_cb), NULL);
-	gtk_widget_set_size_request(buttonBuzzer, BUTTON_SIZE_W, BUTTON_SIZE_H);
-	gtk_fixed_put(appView,(buttonBuzzer), 40, 40);
-
-	buttonSound = gtk_button_new_with_label("Sound");
-	g_signal_connect(buttonSound, "clicked", (sound_cb), NULL);
-	gtk_widget_set_size_request(buttonSound, BUTTON_SIZE_W, BUTTON_SIZE_H);
-	gtk_fixed_put(appView,(buttonSound), 40, 120);
-	
-	buttonTransparent = gtk_button_new_with_label("Transparent\nCommunication");
-	g_signal_connect((buttonTransparent), "clicked", (transparent_cb), NULL);
-	gtk_widget_set_size_request(buttonTransparent, BUTTON_SIZE_W, BUTTON_SIZE_H);
-	gtk_fixed_put(appView,(buttonTransparent), 40, 200);
-	
-	
-	lblInfo = (GtkLabel *) gtk_label_new("Hello World");
-	gtk_widget_set_size_request(GTK_WIDGET(lblInfo),  300, 120);
-	gtk_misc_set_alignment(GTK_MISC(lblInfo), 0.5, 0.5);
-	gtk_label_set_justify(GTK_LABEL(lblInfo),GTK_JUSTIFY_CENTER);
-
-	gtk_fixed_put(appView , GTK_WIDGET(lblInfo), 80 , 80);
-	
-
-	gtk_widget_show_all(GTK_WIDGET(appWindow));
-}
-#endif
 GtkBuilder *builder;
 GtkWidget *mainWindow;
 GtkWidget *btnRfOn, *btnRfOff, *btnPoll, *btnRfReset,
@@ -315,17 +326,34 @@ void emvco_buttons_cb(GtkWidget* widget, gpointer data) {
 	unsigned short command = (unsigned short)data;
 
 	/*here reset the reader before sending the command*/
-	reset_reader_and_wait_ms(1000);
+	reset_reader_and_wait_ms(reset_timeout);
 	printf("sending command:%02x\n", command);
 	sp_transceive(reader_port, command, NULL, 0); 
+}
+
+
+
+
+int set_ip_address(char *ip) {
+	char buffer[1024];
+
+	system("nmcli con del eth0");
+
+	usleep(100000);
+
+	sprintf(buffer, "nmcli c a type ethernet con-name eth0 ifname eth0 ipv4.address %s ipv4.method manual", ip);
+
+	printf("setting ip [%s]\n", buffer);
+
+	system(buffer);
 }
 
 int init_glade_windows() {
 	printf("initializing glade!\n");
 	builder = gtk_builder_new();
 
-	if(gtk_builder_add_from_file(builder, "/home/root/emvl1.glade", NULL) == NULL) {
-		printf("builder error!\n");
+	if(gtk_builder_add_from_file(builder, glade_file, NULL) == NULL) {
+		printf("builder error %s!\n", glade_file);
 		return -1;
 	}
 
@@ -376,11 +404,9 @@ int main(int argc, char *argv[]){
 
 	int ret;
 
-	setpriority(PRIO_PROCESS, 0, -20);
+	//setpriority(PRIO_PROCESS, 0, -20);
 
 	gtk_init(NULL, NULL);
-
-
 
 
 	/*Required for buzzer*/
@@ -392,12 +418,15 @@ int main(int argc, char *argv[]){
 	//system("amixer sset Master 100% on");
 
 	/*Initialize Reset Pin*/
-	system("echo -en 328 > /sys/class/gpio/export");
-	system("echo -en out > /sys/class/gpio/gpio328/direction");
+	system("echo -en 328 >/sys/class/gpio/export 2>/dev/null");
+	system("echo -en out >/sys/class/gpio/gpio328/direction 2>/dev/null");
 
 	if (check_args(argc, argv)) {
 		return 1;
 	}
+
+	if(set_ip)
+		set_ip_address(ip_address);
 
 	ret = init_glade_windows();
 	if(ret != 0) {
