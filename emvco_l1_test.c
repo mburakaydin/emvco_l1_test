@@ -21,7 +21,7 @@
 #include "emvco_functions.h"
 #include "serial_protocol.h"
 
-#define VERSION "1.1.0"
+#define VERSION "1.2.0"
 #define OK 0
 #define ERR 1
 
@@ -33,6 +33,17 @@ static char *baud_rate = "115200";
 static char *ip_address = "139.122.100.1/16";
 static char *glade_file = "/home/root/emvl1.glade";
 static unsigned int reset_timeout = 1000;
+
+GtkBuilder *builder;
+GtkWidget *mainWindow;
+GtkWidget *btnRfOn, *btnRfOff, *btnPoll, *btnRfReset,
+	*btnTransacA, *btnTransacB, *btnLoopBack, *btnInterop,
+	*btnWUPA, *btnWUPB, *btnRATS, *btnAttrib;
+
+GtkWidget *lblA, *lblB, *lblC;
+
+GtkWidget *lblApplication;
+
 
 char service_file[] = "\
 cat <<EOF >/etc/systemd/system/emvco_l1_test.service \n\
@@ -60,6 +71,97 @@ void setup_service() {
 	system("sync");
 }
 
+#define COMMAND_STATUS_TEMP 0x0001
+#define COMMAND_STATUS_VDDPA 0x0002
+#define COMMAND_STATUS_TXLDO_CURR 0x0003
+static int max_current = 0;
+void process_command(int command, unsigned char *data, int data_len) {
+	char string_buffer[256];
+	unsigned int value = 0;
+
+	switch(command) {
+		default:
+		case COMMAND_STATUS_TEMP:
+			value = (data[0] << 24) + (data[1] << 16)  
+				+ (data[2] << 8) + data[3];
+
+			printf("COMMAND_STATUS_TEMP: %02x %02x %02x %02x\n", data[0], data[1], data[2], data[3]);
+			sprintf(string_buffer, "TEMP:%0dC", value);
+			gtk_label_set_text(GTK_LABEL(lblA), string_buffer);
+			break;
+		case COMMAND_STATUS_VDDPA:
+			value = (data[0] << 24) + (data[1] << 16)  
+				+ (data[2] << 8) + data[3];
+
+			printf("COMMAND_STATUS_VDDPA: %02x %02x %02x %02x\n", data[0], data[1], data[2], data[3]);
+			sprintf(string_buffer, "VDDPA:%1.1fV", ((float)value / 10) + 1.5);
+			gtk_label_set_text(GTK_LABEL(lblB), string_buffer);
+			break;	
+
+		case COMMAND_STATUS_TXLDO_CURR:
+			value = (data[0] << 24) + (data[1] << 16)  
+				+ (data[2] << 8) + data[3];
+
+			printf("COMMAND_STATUS_TXLDO_CURR: %02x %02x %02x %02x\n", data[0], data[1], data[2], data[3]);
+			if(value > max_current)
+				max_current = value;
+			sprintf(string_buffer, "Curr:%0dmA\nMax:%0dmA", value, max_current);
+			gtk_label_set_text(GTK_LABEL(lblC), string_buffer);
+			break;						
+	}
+}
+
+
+void protocol_parser(unsigned char received_byte) {
+	static enum {
+		WAIT_STX,
+		WAIT_COMMAND1,
+		WAIT_COMMAND2,
+		WAIT_DATA1,
+		WAIT_DATA2,
+		WAIT_DATA3,
+		WAIT_DATA4,	
+		WAIT_ETX
+	} state = WAIT_STX;
+	static int command = 0;
+	static unsigned char data[4] = {0};
+
+	switch(state) {
+		case WAIT_STX:
+			if(received_byte == 0x02)
+				state = WAIT_COMMAND1;
+			break;
+		case WAIT_COMMAND1:
+			command = (received_byte << 8);
+			state = WAIT_COMMAND2;
+			break;
+		case WAIT_COMMAND2:
+			command += (received_byte << 0);
+			state = WAIT_DATA1;
+			break;
+		case WAIT_DATA1:
+			data[0] = received_byte;
+			state = WAIT_DATA2;
+			break;
+		case WAIT_DATA2:
+			data[1] = received_byte;
+			state = WAIT_DATA3;
+			break;
+		case WAIT_DATA3:
+			data[2] = received_byte;
+			state = WAIT_DATA4;
+			break;
+		case WAIT_DATA4:
+			data[3] = received_byte;
+			state = WAIT_ETX;
+			break;						
+		case WAIT_ETX:
+			if(received_byte == 0x03)
+				process_command(command, data, 4);
+			state = WAIT_STX;
+			break;			
+	}
+}
 
 gboolean oti_message(GIOChannel *source, GIOCondition condition, gpointer data) {
 	unsigned char c;
@@ -88,7 +190,8 @@ gboolean oti_message(GIOChannel *source, GIOCondition condition, gpointer data) 
 	case G_IO_IN:
 		if(idt_SerialReceiveChar(reader_port, &c) == OK){
 			//debugl(2,"**oti get char %02x",c);
-			idt_SerialSendChar(pc_port, c);
+			///idt_SerialSendChar(pc_port, c);
+			protocol_parser(c);
 		}
 		break;
 	case G_IO_HUP:
@@ -211,26 +314,26 @@ static int check_args(int argc, char **argv)
 {
 	int opt;
 	if (argc > 1) {
-		while ((opt = getopt(argc, argv, "hvb:i:g:s")) != -1) {
+		while ((opt = getopt(argc, argv, "hvb:i:g:st:")) != -1) {
 
 			switch (opt) {
 			case 'g':
 				glade_file = strdup(optarg);
 				printf("Glade file->[%s]\n", glade_file);
-				return 0;
+				continue;
 			case 'i':
 				ip_address = strdup(optarg);
 				set_ip = 1;
 				printf("Ip address->[%s]\n", ip_address);
-				return 0;
+				continue;
 			case 't':
 				reset_timeout = atoi(optarg);
 				printf("Reset timeout->[%d]msec\n", reset_timeout);
-				return 0;				
+				continue;				
 			case 'b':
 				baud_rate = strdup(optarg);
 				printf("Selected baud rate->[%s]\n", baud_rate);
-				return 0;
+				continue;
 			case 'v':
 				printf("Version is %s\n\r", VERSION);
 				return 1;
@@ -306,16 +409,10 @@ void transparent_cb() {
 }
 
 
-GtkBuilder *builder;
-GtkWidget *mainWindow;
-GtkWidget *btnRfOn, *btnRfOff, *btnPoll, *btnRfReset,
-	*btnTransacA, *btnTransacB, *btnLoopBack, *btnInterop,
-	*btnWUPA, *btnWUPB, *btnRATS, *btnAttrib;
-
-GtkWidget *lblApplication;
 
 
 void reset_reader_and_wait_ms(int wait_ms) {
+	max_current = 0;
 	system("echo -en 1 > /sys/class/gpio/gpio328/value");
 	usleep(10000);
 	system("echo -en 0 > /sys/class/gpio/gpio328/value");
@@ -338,6 +435,7 @@ int set_ip_address(char *ip) {
 	char buffer[1024];
 
 	system("nmcli con del eth0");
+	system("nmcli con del 'Wired connection 1'");
 
 	usleep(100000);
 
@@ -376,6 +474,9 @@ int init_glade_windows() {
 	btnAttrib = GTK_WIDGET(gtk_builder_get_object(builder, "btnAttrib"));
 
 	lblApplication = GTK_WIDGET(gtk_builder_get_object(builder, "lblApplication"));
+	lblA = GTK_WIDGET(gtk_builder_get_object(builder, "lblA"));
+	lblB = GTK_WIDGET(gtk_builder_get_object(builder, "lblB"));
+	lblC = GTK_WIDGET(gtk_builder_get_object(builder, "lblC"));
 
 
 	g_signal_connect(G_OBJECT(btnRfOn), "clicked", G_CALLBACK(emvco_buttons_cb), (gpointer)EMVCO_FIELD_ON);
@@ -435,7 +536,7 @@ int main(int argc, char *argv[]){
 	}
 	init_io_channel_connection();
 
-	char version_string[128] = "EMVCO L1 Test App v";
+	char version_string[128] = "EMVL1 v";
 
 	strcat(version_string, VERSION);
 
