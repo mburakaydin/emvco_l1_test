@@ -42,7 +42,7 @@
         </child>
         <child>
           <object class="GtkButton" id="btnRfOn">
-            <property name="label" translatable="yes">RF On</property>
+            <property name="label" translatable="yes">Carrier</property>
             <property name="visible">True</property>
             <property name="can-focus">True</property>
             <property name="receives-default">True</property>
@@ -54,7 +54,7 @@
         </child>
         <child>
           <object class="GtkButton" id="btnRfOff">
-            <property name="label" translatable="yes">RF Off</property>
+            <property name="label" translatable="yes">Power-off</property>
             <property name="visible">True</property>
             <property name="can-focus">True</property>
             <property name="receives-default">True</property>
@@ -78,7 +78,7 @@
         </child>
         <child>
           <object class="GtkButton" id="btnRfReset">
-            <property name="label" translatable="yes">RF Reset</property>
+            <property name="label" translatable="yes">Reset</property>
             <property name="visible">True</property>
             <property name="can-focus">True</property>
             <property name="receives-default">True</property>
